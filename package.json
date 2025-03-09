@@ -10,10 +10,14 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
+    "@types/bcrypt": "^5.0.2",
+    "@types/jwt-decode": "^3.1.0",
+    "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
+    "jwt-decode": "^4.0.0",
     "nodemailer": "^6.10.0",
     "stripe": "^14.5.0"
   },
