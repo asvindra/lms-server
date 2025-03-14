@@ -2,16 +2,16 @@
 import nodemailer from "nodemailer";
 
 const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER, // Use environment variables for security
-      pass: process.env.EMAIL_PASS, // App Password here
-    },
-  });
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER, // Use environment variables for security
+    pass: process.env.EMAIL_PASS, // App Password here
+  },
+});
 
-export const sendOtpEmail = async (email: string, otp: string) => {
+export const sendOtpEmail = async (email: string, otp: number) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: email,

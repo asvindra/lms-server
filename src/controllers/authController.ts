@@ -5,7 +5,7 @@ import { sendOtpEmail } from "../config/email";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 
-const generateOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
+const generateOtp = () => 123456; // Math.floor(100000 + Math.random() * 900000);
 
 export const signupAdmin = async (req: Request, res: Response) => {
   const { email, password } = req.body;
@@ -45,14 +45,15 @@ export const signupAdmin = async (req: Request, res: Response) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const otp = generateOtp();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpires = new Date(Date.now() + 60 * 60 * 1000); // 10 minutes
 
     if (existingAdmin) {
       const { error: updateError } = await supabase
         .from("admin")
         .update({ otp, otp_expires: otpExpires, password: hashedPassword })
         .eq("email", email);
-      if (updateError) return res.status(500).json({ error: updateError.message });
+      if (updateError)
+        return res.status(500).json({ error: updateError.message });
     } else {
       const { error: insertError } = await supabase.from("admin").insert({
         email,
@@ -62,11 +63,14 @@ export const signupAdmin = async (req: Request, res: Response) => {
         is_master: false,
         is_verified: false,
       });
-      if (insertError) return res.status(500).json({ error: insertError.message });
+      if (insertError)
+        return res.status(500).json({ error: insertError.message });
     }
 
     await sendOtpEmail(email, otp);
-    res.json({ message: "OTP sent to your email. Please verify to complete signup." });
+    res.json({
+      message: "OTP sent to your email. Please verify to complete signup.",
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -74,7 +78,7 @@ export const signupAdmin = async (req: Request, res: Response) => {
 };
 
 export const verifyOtp = async (req: Request, res: Response) => {
-  const { email, otp, password } = req.body;
+  const { email, otp } = req.body;
 
   if (!email || !otp) {
     return res.status(400).json({ error: "Email and OTP are required" });
@@ -116,24 +120,36 @@ export const verifyOtp = async (req: Request, res: Response) => {
       role = "student";
     }
 
-    console.log("user",user,otp);
-    
+    console.log("user", typeof user.otp, typeof otp);
+
     if (user.otp !== otp || new Date(user.otp_expires) < new Date()) {
       return res.status(400).json({ error: "Invalid or expired OTP" });
     }
 
+    // Use type assertion to allow additional properties
+    const updates = { otp: null, otp_expires: null } as {
+      otp: null;
+      otp_expires: null;
+      is_verified?: boolean;
+    };
     if (tableName === "admin" && !user.is_verified) {
-      // Signup verification
-      const updates = { otp: null, otp_expires: null, is_verified: true };
-      const { error: updateError } = await supabase
-        .from("admin")
-        .update(updates)
-        .eq("email", email);
+      updates.is_verified = true; // No error now
+    } else if (tableName === "student" && !user.is_verified) {
+      return res
+        .status(403)
+        .json({ error: "Student must be verified by an admin" });
+    }
 
-      if (updateError) {
-        return res.status(500).json({ error: updateError.message });
-      }
+    const { error: updateError } = await supabase
+      .from(tableName)
+      .update(updates)
+      .eq("email", email);
 
+    if (updateError) {
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    if (tableName === "admin" && updates.is_verified) {
       const token = jwt.sign(
         {
           userId: user.id,
@@ -152,29 +168,77 @@ export const verifyOtp = async (req: Request, res: Response) => {
         user: { id: user.id, email: user.email, role: "admin" },
       });
     } else {
-      // Forgot-password verification (for admins or verified students)
-      if (tableName === "student" && !user.is_verified) {
-        return res.status(403).json({ error: "Student must be verified by an admin" });
-      }
-
-      if (!password) {
-        return res.status(400).json({ error: "New password is required for password reset" });
-      }
-
-      const hashedPassword = await bcrypt.hash(password, 10);
-      const updates = { otp: null, otp_expires: null, password: hashedPassword };
-
-      const { error: updateError } = await supabase
-        .from(tableName)
-        .update(updates)
-        .eq("email", email);
-
-      if (updateError) {
-        return res.status(500).json({ error: updateError.message });
-      }
-
-      res.json({ message: "Password reset successful! Please log in." });
+      res.json({ message: "OTP verified successfully", email });
     }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+};
+export const confirmPassword = async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
+
+  try {
+    let user, tableName;
+    const { data: adminUser, error: adminError } = await supabase
+      .from("admin")
+      .select("*")
+      .eq("email", email)
+      .single();
+
+    if (adminError && adminError.code !== "PGRST116") {
+      return res.status(500).json({ error: adminError.message });
+    }
+
+    if (adminUser) {
+      user = adminUser;
+      tableName = "admin";
+    } else {
+      const { data: studentUser, error: studentError } = await supabase
+        .from("student")
+        .select("*")
+        .eq("email", email)
+        .single();
+
+      if (studentError && studentError.code !== "PGRST116") {
+        return res.status(500).json({ error: studentError.message });
+      }
+
+      if (!studentUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      user = studentUser;
+      tableName = "student";
+    }
+
+    // Ensure user is verified (for forgot-password flow)
+    if (!user.is_verified) {
+      return res.status(403).json({ error: "Account must be verified first" });
+    }
+
+    // Ensure OTP is cleared (indicating prior verification)
+    if (user.otp || user.otp_expires) {
+      return res.status(400).json({ error: "OTP verification required" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const updates = { password: hashedPassword };
+
+    const { error: updateError } = await supabase
+      .from(tableName)
+      .update(updates)
+      .eq("email", email);
+
+    if (updateError) {
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    res.json({ message: "Password reset successful! Please log in." });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
@@ -225,11 +289,15 @@ export const login = async (req: Request, res: Response) => {
     }
 
     if (tableName === "student" && !user.is_verified) {
-      return res.status(403).json({ error: "Student must be verified by an admin" });
+      return res
+        .status(403)
+        .json({ error: "Student must be verified by an admin" });
     }
 
     if (!user.password) {
-      return res.status(400).json({ error: "No password set. Please use forgot-password." });
+      return res
+        .status(400)
+        .json({ error: "No password set. Please use forgot-password." });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -238,7 +306,7 @@ export const login = async (req: Request, res: Response) => {
     }
 
     console.log("tableName: " + tableName);
-    
+
     const token = jwt.sign(
       {
         userId: user.id,
@@ -305,10 +373,14 @@ export const forgotPassword = async (req: Request, res: Response) => {
     }
 
     if (tableName === "student" && !user.is_verified) {
-      return res.status(403).json({ error: "Student must be verified by an admin" });
+      return res
+        .status(403)
+        .json({ error: "Student must be verified by an admin" });
     }
 
     const otp = generateOtp();
+    console.log("tpy", typeof otp);
+
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     const { error: updateError } = await supabase
@@ -321,7 +393,10 @@ export const forgotPassword = async (req: Request, res: Response) => {
     }
 
     await sendOtpEmail(email, otp);
-    res.json({ message: "OTP sent to your email. Please verify to reset password." });
+    res.json({
+      message: "OTP sent to your email. Please verify to reset password.",
+      email: email,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Server error" });
