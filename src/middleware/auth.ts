@@ -19,7 +19,11 @@ declare global {
   }
 }
 
-export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+export const authenticateToken = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
@@ -28,7 +32,10 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as TokenPayload;
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET as string
+    ) as TokenPayload;
     req.user = decoded;
     next();
   } catch (err) {
@@ -36,26 +43,37 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
   }
 };
 
-export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+export const requireAdmin = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({ error: "Admin access required" });
   }
   next();
 };
 
-export const requireSubscribedAdmin = (req: Request, res: Response, next: NextFunction) => {
+export const requireSubscribedAdmin = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  console.log("req", req.user);
 
-  console.log("req",req.user);
-  
   if (!req.user || req.user.role !== "admin" || !req.user.isSubscribed) {
-    console.log("inside",req.user?.isSubscribed);
-    
+    console.log("inside", req.user?.isSubscribed);
+
     return res.status(403).json({ error: "Subscribed admin access required" });
   }
   next();
 };
 
-export const requirePaidStudent = (req: Request, res: Response, next: NextFunction) => {
+export const requirePaidStudent = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
   if (!req.user || req.user.role !== "student" || !req.user.hasPaid) {
     return res.status(403).json({ error: "Paid student access required" });
   }

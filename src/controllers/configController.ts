@@ -33,18 +33,26 @@ export const configureShifts = async (req: Request, res: Response) => {
     if (discounts) {
       if (
         numShifts < 2 &&
-        (discounts.discount2Shifts ||
-          discounts.discount3Shifts ||
-          discounts.discountAllShifts)
+        (discounts.discountSingle ||
+          discounts.discountDouble ||
+          discounts.discountTriple)
       ) {
         return res.status(400).json({
-          error: "Discounts are not applicable with fewer than 2 shifts",
+          error: "Discount for selections requires at least 2 shifts",
         });
       }
-      if (numShifts < 3 && discounts.discount3Shifts) {
+      if (
+        numShifts < 3 &&
+        (discounts.discountDouble || discounts.discountTriple)
+      ) {
         return res.status(400).json({
-          error: "Discount for 3 shifts requires at least 3 shifts configured",
+          error: "Discount for double/triple requires at least 3 shifts",
         });
+      }
+      if (numShifts < 4 && discounts.discountTriple) {
+        return res
+          .status(400)
+          .json({ error: "Discount for triple requires 4 shifts" });
       }
     }
 
@@ -93,25 +101,32 @@ export const configureShifts = async (req: Request, res: Response) => {
 
     if (discounts) {
       const discountConfigs = [];
-      if (discounts.discount2Shifts && numShifts >= 2) {
+      if (discounts.discountAllShifts !== undefined) {
+        discountConfigs.push({
+          admin_id: admin.id,
+          min_shifts: numShifts, // All shifts discount
+          discount_percentage: discounts.discountAllShifts,
+        });
+      }
+      if (discounts.discountSingle !== undefined && numShifts >= 2) {
+        discountConfigs.push({
+          admin_id: admin.id,
+          min_shifts: 1,
+          discount_percentage: discounts.discountSingle,
+        });
+      }
+      if (discounts.discountDouble !== undefined && numShifts >= 3) {
         discountConfigs.push({
           admin_id: admin.id,
           min_shifts: 2,
-          discount_percentage: discounts.discount2Shifts,
+          discount_percentage: discounts.discountDouble,
         });
       }
-      if (discounts.discount3Shifts && numShifts >= 3) {
+      if (discounts.discountTriple !== undefined && numShifts === 4) {
         discountConfigs.push({
           admin_id: admin.id,
           min_shifts: 3,
-          discount_percentage: discounts.discount3Shifts,
-        });
-      }
-      if (discounts.discountAllShifts) {
-        discountConfigs.push({
-          admin_id: admin.id,
-          min_shifts: numShifts,
-          discount_percentage: discounts.discountAllShifts,
+          discount_percentage: discounts.discountTriple,
         });
       }
 
@@ -151,14 +166,16 @@ export const getConfiguredShifts = async (req: Request, res: Response) => {
 
     const { data: shifts, error: shiftsError } = await supabase
       .from("shifts")
-      .select("shift_number, start_time, end_time, fees")
+      .select("shift_number, start_time, end_time, fees, id")
       .eq("admin_id", admin.id)
       .order("shift_number", { ascending: true });
 
     if (shiftsError)
       return res.status(500).json({ error: shiftsError.message });
     if (!shifts || shifts.length === 0) {
-      return res.status(404).json({ error: "No shifts configured" });
+      return res
+        .status(200)
+        .json({ shifts: [], discounts: [], message: "No shifts configured" });
     }
 
     const { data: discounts, error: discountsError } = await supabase
@@ -184,6 +201,7 @@ export const getConfiguredShifts = async (req: Request, res: Response) => {
 export const updateShifts = async (req: Request, res: Response) => {
   try {
     const user = req.user;
+
     const { data: admin, error: adminError } = await supabase
       .from("admin")
       .select("*")
@@ -194,143 +212,125 @@ export const updateShifts = async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Admin must be verified" });
     }
 
-    const { numShifts, hoursPerShift, startTime, fees, discounts } = req.body;
+    const { shiftNumber, startTime, endTime, fees, discounts } = req.body;
 
-    // Validate inputs
-    if (
-      !numShifts ||
-      !hoursPerShift ||
-      !startTime ||
-      !fees ||
-      fees.length !== numShifts
-    ) {
-      return res
-        .status(400)
-        .json({ error: "Missing or invalid shift configuration" });
+    if (!shiftNumber || !startTime || !endTime || fees === undefined) {
+      return res.status(400).json({ error: "Missing required fields" });
     }
 
-    // Validate discounts
-    if (discounts) {
-      if (
-        numShifts < 2 &&
-        (discounts.discount2Shifts ||
-          discounts.discount3Shifts ||
-          discounts.discountAllShifts)
-      ) {
-        return res.status(400).json({
-          error: "Discounts are not applicable with fewer than 2 shifts",
-        });
-      }
-      if (numShifts < 3 && discounts.discount3Shifts) {
-        return res.status(400).json({
-          error: "Discount for 3 shifts requires at least 3 shifts configured",
-        });
-      }
-    }
-
-    // Check if shifts exist
-    const { data: existingShifts, error: shiftsError } = await supabase
+    const { data: shift, error: shiftError } = await supabase
       .from("shifts")
       .select("id")
-      .eq("admin_id", admin.id);
+      .eq("admin_id", admin.id)
+      .eq("shift_number", shiftNumber)
+      .single();
 
-    if (shiftsError)
-      return res.status(500).json({ error: shiftsError.message });
-    if (!existingShifts || existingShifts.length === 0) {
-      return res.status(404).json({ error: "No shifts found to update" });
+    if (shiftError || !shift) {
+      return res.status(404).json({ error: "Shift not found" });
     }
 
-    // Check if students are assigned
     const { data: existingStudents, error: studentsError } = await supabase
       .from("shift_students")
       .select("shift_id")
-      .in(
-        "shift_id",
-        existingShifts.map((s) => s.id)
-      );
+      .eq("shift_id", shift.id);
 
     if (studentsError)
       return res.status(500).json({ error: studentsError.message });
     if (existingStudents.length > 0) {
       return res
         .status(403)
-        .json({ error: "Cannot update shifts with assigned students" });
+        .json({ error: "Cannot update shift with assigned students" });
     }
 
-    // Generate new shifts
-    const updatedShifts = generateShifts(numShifts, hoursPerShift, startTime);
-
-    // Delete existing shifts
-    const { error: deleteShiftsError } = await supabase
+    const { error: updateError } = await supabase
       .from("shifts")
-      .delete()
-      .eq("admin_id", admin.id);
-    if (deleteShiftsError)
-      return res.status(500).json({ error: deleteShiftsError.message });
+      .update({
+        start_time: startTime,
+        end_time: endTime,
+        fees,
+      })
+      .eq("admin_id", admin.id)
+      .eq("shift_number", shiftNumber);
 
-    // Insert updated shifts
-    const shiftsToInsert = updatedShifts.map((shift, index) => ({
-      admin_id: admin.id,
-      shift_number: shift.shift_number,
-      start_time: shift.start_time,
-      end_time: shift.end_time,
-      fees: fees[index],
-    }));
+    if (updateError)
+      return res.status(500).json({ error: updateError.message });
 
-    const { data: insertedShifts, error: insertError } = await supabase
-      .from("shifts")
-      .insert(shiftsToInsert)
-      .select();
-
-    if (insertError)
-      return res.status(500).json({ error: insertError.message });
-
-    // Delete existing discounts
-    const { error: deleteDiscountsError } = await supabase
-      .from("shift_discounts")
-      .delete()
-      .eq("admin_id", admin.id);
-    if (deleteDiscountsError)
-      return res.status(500).json({ error: deleteDiscountsError.message });
-
-    // Insert updated discounts
     if (discounts) {
+      const numShifts =
+        (await supabase.from("shifts").select("id").eq("admin_id", admin.id))
+          .data?.length || 0;
+
+      if (
+        numShifts < 2 &&
+        (discounts.discountSingle ||
+          discounts.discountDouble ||
+          discounts.discountTriple)
+      ) {
+        return res.status(400).json({
+          error: "Discount for selections requires at least 2 shifts",
+        });
+      }
+      if (
+        numShifts < 3 &&
+        (discounts.discountDouble || discounts.discountTriple)
+      ) {
+        return res.status(400).json({
+          error: "Discount for double/triple requires at least 3 shifts",
+        });
+      }
+      if (numShifts < 4 && discounts.discountTriple) {
+        return res
+          .status(400)
+          .json({ error: "Discount for triple requires 4 shifts" });
+      }
+
       const discountConfigs = [];
-      if (discounts.discount2Shifts && numShifts >= 2) {
-        discountConfigs.push({
-          admin_id: admin.id,
-          min_shifts: 2,
-          discount_percentage: discounts.discount2Shifts,
-        });
-      }
-      if (discounts.discount3Shifts && numShifts >= 3) {
-        discountConfigs.push({
-          admin_id: admin.id,
-          min_shifts: 3,
-          discount_percentage: discounts.discount3Shifts,
-        });
-      }
-      if (discounts.discountAllShifts) {
+      if (discounts.discountAllShifts !== undefined) {
         discountConfigs.push({
           admin_id: admin.id,
           min_shifts: numShifts,
           discount_percentage: discounts.discountAllShifts,
         });
       }
+      if (discounts.discountSingle !== undefined && numShifts >= 2) {
+        discountConfigs.push({
+          admin_id: admin.id,
+          min_shifts: 1,
+          discount_percentage: discounts.discountSingle,
+        });
+      }
+      if (discounts.discountDouble !== undefined && numShifts >= 3) {
+        discountConfigs.push({
+          admin_id: admin.id,
+          min_shifts: 2,
+          discount_percentage: discounts.discountDouble,
+        });
+      }
+      if (discounts.discountTriple !== undefined && numShifts === 4) {
+        discountConfigs.push({
+          admin_id: admin.id,
+          min_shifts: 3,
+          discount_percentage: discounts.discountTriple,
+        });
+      }
 
       if (discountConfigs.length > 0) {
-        const { error: discountError } = await supabase
+        const { error: deleteDiscountError } = await supabase
+          .from("shift_discounts")
+          .delete()
+          .eq("admin_id", admin.id);
+        if (deleteDiscountError)
+          return res.status(500).json({ error: deleteDiscountError.message });
+
+        const { error: insertDiscountError } = await supabase
           .from("shift_discounts")
           .insert(discountConfigs);
-        if (discountError)
-          return res.status(500).json({ error: discountError.message });
+        if (insertDiscountError)
+          return res.status(500).json({ error: insertDiscountError.message });
       }
     }
 
-    res.json({
-      message: "Shifts updated successfully",
-      shifts: insertedShifts,
-    });
+    res.json({ message: "Shift updated successfully" });
   } catch (err: any) {
     console.error(err);
     res.status(400).json({ error: err.message || "Server error" });
