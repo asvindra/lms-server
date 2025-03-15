@@ -30,7 +30,7 @@ export const signupAdmin = async (req: Request, res: Response) => {
     }
 
     const { data: existingStudent, error: studentError } = await supabase
-      .from("student")
+      .from("students")
       .select("*")
       .eq("email", email)
       .single();
@@ -102,7 +102,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
       role = "admin";
     } else {
       const { data: studentUser, error: studentError } = await supabase
-        .from("student")
+        .from("students")
         .select("*")
         .eq("email", email)
         .single();
@@ -116,11 +116,11 @@ export const verifyOtp = async (req: Request, res: Response) => {
       }
 
       user = studentUser;
-      tableName = "student";
+      tableName = "students";
       role = "student";
     }
 
-    console.log("user", typeof user.otp, typeof otp);
+    console.log("user", user, new Date(user.otp_expires), new Date());
 
     if (user.otp !== otp || new Date(user.otp_expires) < new Date()) {
       return res.status(400).json({ error: "Invalid or expired OTP" });
@@ -134,7 +134,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
     };
     if (tableName === "admin" && !user.is_verified) {
       updates.is_verified = true; // No error now
-    } else if (tableName === "student" && !user.is_verified) {
+    } else if (tableName === "students" && !user.is_verified) {
       return res
         .status(403)
         .json({ error: "Student must be verified by an admin" });
@@ -199,7 +199,7 @@ export const confirmPassword = async (req: Request, res: Response) => {
       tableName = "admin";
     } else {
       const { data: studentUser, error: studentError } = await supabase
-        .from("student")
+        .from("students")
         .select("*")
         .eq("email", email)
         .single();
@@ -213,7 +213,7 @@ export const confirmPassword = async (req: Request, res: Response) => {
       }
 
       user = studentUser;
-      tableName = "student";
+      tableName = "students";
     }
 
     // Ensure user is verified (for forgot-password flow)
@@ -270,7 +270,7 @@ export const login = async (req: Request, res: Response) => {
       role = "admin";
     } else {
       const { data: studentUser, error: studentError } = await supabase
-        .from("student")
+        .from("students")
         .select("*")
         .eq("email", email)
         .single();
@@ -284,11 +284,11 @@ export const login = async (req: Request, res: Response) => {
       }
 
       user = studentUser;
-      tableName = "student";
+      tableName = "students";
       role = "student";
     }
 
-    if (tableName === "student" && !user.is_verified) {
+    if (tableName === "students" && !user.is_verified) {
       return res
         .status(403)
         .json({ error: "Student must be verified by an admin" });
@@ -313,7 +313,7 @@ export const login = async (req: Request, res: Response) => {
         email: user.email,
         role,
         isSubscribed: tableName === "admin" ? user.is_subscribed : undefined,
-        hasPaid: tableName === "student" ? user.has_paid : undefined,
+        hasPaid: tableName === "students" ? user.has_paid : undefined,
         isMaster: tableName === "admin" ? user.is_master : undefined,
       },
       process.env.JWT_SECRET as string,
@@ -355,7 +355,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
       tableName = "admin";
     } else {
       const { data: studentUser, error: studentError } = await supabase
-        .from("student")
+        .from("students")
         .select("*")
         .eq("email", email)
         .single();
@@ -369,19 +369,18 @@ export const forgotPassword = async (req: Request, res: Response) => {
       }
 
       user = studentUser;
-      tableName = "student";
+      tableName = "students";
     }
 
-    if (tableName === "student" && !user.is_verified) {
+    if (tableName === "students" && !user.is_verified) {
       return res
         .status(403)
         .json({ error: "Student must be verified by an admin" });
     }
 
     const otp = generateOtp();
-    console.log("tpy", typeof otp);
 
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000).toISOString();
 
     const { error: updateError } = await supabase
       .from(tableName)

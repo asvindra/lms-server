@@ -1,11 +1,45 @@
-// backend/src/routes/studentRoutes.ts
-import express from "express";
-import { addStudent, verifyStudent } from "../controllers/studentController";
+import { Router } from "express";
+
 import { authenticateToken, requireSubscribedAdmin } from "../middleware/auth";
+import {
+  addStudent,
+  updateStudent,
+  deleteStudent,
+  getStudents,
+  getConfiguredShifts,
+} from "../controllers/studentController";
 
-const router = express.Router();
+const router = Router();
 
-router.post("/add", authenticateToken, requireSubscribedAdmin, addStudent);
-router.post("/verify/:id", authenticateToken, requireSubscribedAdmin, verifyStudent);
+router.post(
+  "/add-student",
+  authenticateToken,
+  requireSubscribedAdmin,
+  addStudent
+);
+router.put(
+  "/update-student",
+  authenticateToken,
+  requireSubscribedAdmin,
+  updateStudent
+);
+router.delete(
+  "/delete-student/:id",
+  authenticateToken,
+  requireSubscribedAdmin,
+  deleteStudent
+);
+router.get(
+  "/get-students",
+  authenticateToken,
+  requireSubscribedAdmin,
+  getStudents
+);
+router.get(
+  "/get-shifts",
+  authenticateToken,
+  requireSubscribedAdmin,
+  getConfiguredShifts
+);
 
 export default router;

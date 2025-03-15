@@ -20,7 +20,7 @@ app.use(
 app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", configRoutes);
-app.use("/api/students", studentRoutes);
+app.use("/api/admin/student", studentRoutes);
 
 app.get("/", (req, res) => {
   res.send("Library Management Backend");
