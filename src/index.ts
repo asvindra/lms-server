@@ -6,6 +6,7 @@ import studentRoutes from "./routes/studentRoutes";
 import cors from "cors";
 import configRoutes from "./routes/configRoutes";
 import seatRoutes from "./routes/seatRoutes";
+import adminRoutes from "./routes/adminRoutes";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -21,6 +22,7 @@ app.use(
 app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", configRoutes);
+app.use("/api/admin/profile", adminRoutes);
 app.use("/api/admin/student", studentRoutes);
 app.use("/api/admin/seat", seatRoutes);
 
