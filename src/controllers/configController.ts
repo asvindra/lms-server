@@ -527,48 +527,83 @@ export const configureSeats = async (req: Request, res: Response) => {
 };
 
 // Fetch seat configuration
-export const getSeatConfig = async (req: Request, res: Response) => {
+export const getSeatConfig = async (req: any, res: Response) => {
   try {
     const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
     const { data: admin, error: adminError } = await supabase
       .from("admin")
-      .select("*")
-      .eq("id", user?.userId)
+      .select("id, is_verified")
+      .eq("id", user.userId)
       .single();
 
     if (adminError || !admin || !admin.is_verified) {
       return res.status(403).json({ error: "Admin must be verified" });
     }
 
+    // Fetch seats (no shift_id)
     const { data: seats, error: seatsError } = await supabase
       .from("seats")
-      .select("id, seat_number, reserved_by, shift_id")
+      .select("id, seat_number, reserved_by")
       .eq("admin_id", admin.id)
       .order("seat_number", { ascending: true });
 
-    if (seatsError) return res.status(500).json({ error: seatsError.message });
+    if (seatsError) {
+      console.error("Seats fetch error:", seatsError);
+      return res.status(500).json({ error: seatsError.message });
+    }
 
-    // Fetch shift numbers for display
+    // Enrich seat data with student shift info
     const seatData = await Promise.all(
       seats.map(async (seat) => {
-        if (seat.shift_id) {
-          const { data: shift, error: shiftError } = await supabase
-            .from("shifts")
-            .select("shift_number")
-            .eq("id", seat.shift_id)
-            .single();
-          if (shiftError) throw shiftError;
-          return { ...seat, shift_number: shift.shift_number };
+        let studentShiftNumbers = [];
+
+        // Fetch student's shift numbers (if reserved_by exists)
+        if (seat.reserved_by) {
+          const { data: studentShifts, error: studentShiftsError } =
+            await supabase
+              .from("student_shifts")
+              .select("shift_id")
+              .eq("student_id", seat.reserved_by);
+
+          if (studentShiftsError) {
+            console.error(
+              `Student shifts fetch error for student ${seat.reserved_by}:`,
+              studentShiftsError
+            );
+            throw studentShiftsError;
+          }
+
+          if (studentShifts && studentShifts.length > 0) {
+            const shiftIds = studentShifts.map((ss) => ss.shift_id);
+            const { data: shifts, error: shiftsError } = await supabase
+              .from("shifts")
+              .select("id, shift_number")
+              .in("id", shiftIds);
+
+            if (shiftsError) {
+              console.error("Shifts fetch error:", shiftsError);
+              throw shiftsError;
+            }
+
+            studentShiftNumbers = shifts.map((shift) => shift.shift_number);
+          }
         }
-        return { ...seat, shift_number: null };
+
+        return {
+          ...seat,
+          student_shift_numbers: studentShiftNumbers, // Only student's shift numbers
+        };
       })
     );
 
     res.json({ seats: seatData });
   } catch (err: any) {
     console.error("Error in getSeatConfig:", err);
-    res.status(400).json({ error: err.message || "Server error" });
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
 

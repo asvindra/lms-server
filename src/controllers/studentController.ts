@@ -38,9 +38,9 @@ export const addStudent = async (req: any, res: Response) => {
       paymentDone,
       shiftIds,
       isSubscribed,
+      seatId,
     } = req.body;
 
-    // Validate required fields
     if (!email || !name || !shiftIds || shiftIds.length === 0) {
       return res
         .status(400)
@@ -76,11 +76,29 @@ export const addStudent = async (req: any, res: Response) => {
         .json({ error: "Email already in use by another student" });
     }
 
-    // Set default password
+    // Validate seat (if provided)
+    let allocatedSeatId = null;
+    if (seatId) {
+      const { data: seat, error: seatError } = await supabase
+        .from("seats")
+        .select("id, reserved_by")
+        .eq("id", seatId)
+        .eq("admin_id", admin.id)
+        .single();
+
+      if (seatError || !seat) {
+        return res.status(400).json({ error: "Invalid seat ID" });
+      }
+      if (seat.reserved_by) {
+        return res.status(400).json({ error: "Seat is already allocated" });
+      }
+      allocatedSeatId = seat.id;
+    }
+
+    // Insert student with seat_id
     const defaultPassword = "Student@123";
     const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
-    // Fetch shifts for fee calculation
     const { data: shifts, error: shiftsError } = await supabase
       .from("shifts")
       .select("id, fees")
@@ -91,7 +109,6 @@ export const addStudent = async (req: any, res: Response) => {
       return res.status(400).json({ error: "Invalid shift selection" });
     }
 
-    // Insert student with default password
     const { data: student, error: studentError } = await supabase
       .from("students")
       .insert({
@@ -107,8 +124,9 @@ export const addStudent = async (req: any, res: Response) => {
         payment_done: paymentDone || false,
         admin_id: admin.id,
         is_verified: true,
-        is_subscribed: paymentDone || isSubscribed || false,
+        is_subscribed: isSubscribed || false,
         password: hashedPassword,
+        seat_id: allocatedSeatId,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -119,7 +137,21 @@ export const addStudent = async (req: any, res: Response) => {
       return res.status(500).json({ error: studentError.message });
     }
 
-    // Calculate monthly fee with discounts
+    // Update seat reserved_by (after student is inserted)
+    if (allocatedSeatId) {
+      const { error: seatUpdateError } = await supabase
+        .from("seats")
+        .update({ reserved_by: student.id })
+        .eq("id", allocatedSeatId);
+
+      if (seatUpdateError) {
+        // Rollback student insertion if seat update fails
+        await supabase.from("students").delete().eq("id", student.id);
+        return res.status(500).json({ error: seatUpdateError.message });
+      }
+    }
+
+    // Insert shifts
     const { data: discounts, error: discountsError } = await supabase
       .from("shift_discounts")
       .select("min_shifts, discount_percentage")
@@ -404,7 +436,7 @@ export const getStudents = async (req: any, res: Response) => {
     const { data: students, error: studentsError } = await supabase
       .from("students")
       .select(
-        "id, email, name, mobile_no, aadhar_no, address, father_name, joining_date, gender, payment_mode, payment_done"
+        "id, email, name, mobile_no, aadhar_no, address, father_name, joining_date, gender, payment_mode, payment_done, seat_id"
       )
       .eq("admin_id", admin.id);
 
@@ -424,14 +456,24 @@ export const getStudents = async (req: any, res: Response) => {
       return res.status(500).json({ error: shiftsError.message });
     }
 
-    const studentsWithShifts = students.map((student: any) => ({
+    const { data: seats, error: seatsError } = await supabase
+      .from("seats")
+      .select("id, seat_number, reserved_by")
+      .eq("admin_id", admin.id);
+
+    if (seatsError) {
+      return res.status(500).json({ error: seatsError.message });
+    }
+
+    const studentsWithShiftsAndSeats = students.map((student: any) => ({
       ...student,
       shifts: studentShifts.filter(
         (shift: any) => shift.student_id === student.id
       ),
+      seat: seats.find((seat: any) => seat.id === student.seat_id) || null,
     }));
 
-    res.json({ students: studentsWithShifts });
+    res.json({ students: studentsWithShiftsAndSeats });
   } catch (err: any) {
     console.error(err);
     res.status(400).json({ error: err.message || "Server error" });
