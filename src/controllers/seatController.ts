@@ -186,34 +186,35 @@ export const getAvailableSeats = async (req: any, res: Response) => {
 
     const { data: admin, error: adminError } = await supabase
       .from("admin")
-      .select("id, is_verified, is_subscribed")
+      .select("id, is_verified")
       .eq("id", user.userId)
       .single();
 
-    if (adminError || !admin) {
-      return res.status(403).json({ error: "Admin not found" });
-    }
-    if (!admin.is_verified) {
+    if (adminError || !admin || !admin.is_verified) {
       return res.status(403).json({ error: "Admin must be verified" });
     }
-    if (!admin.is_subscribed) {
-      return res.status(403).json({ error: "Admin must be subscribed" });
-    }
 
+    const studentId = req.query?.studentId as string; // Optional studentId from query
+
+    // Fetch all seats
     const { data: seats, error: seatsError } = await supabase
       .from("seats")
-      .select("id, seat_number")
+      .select("id, seat_number, reserved_by")
       .eq("admin_id", admin.id)
-      .is("reserved_by", null)
       .order("seat_number", { ascending: true });
 
     if (seatsError) {
       return res.status(500).json({ error: seatsError.message });
     }
 
-    res.json({ seats: seats || [] });
+    // Include available seats + the student's current seat if editing
+    const filteredSeats = studentId
+      ? seats // In edit mode, return all seats (available + student's current seat)
+      : seats.filter((seat) => !seat.reserved_by); // In add mode, only available seats
+
+    res.json({ seats: filteredSeats });
   } catch (err: any) {
-    console.error(err);
-    res.status(400).json({ error: err.message || "Server error" });
+    console.error("Error in getAvailableSeats:", err);
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };

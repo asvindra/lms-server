@@ -59,7 +59,7 @@ export const configureShifts = async (req: Request, res: Response) => {
     const generatedShifts = generateShifts(numShifts, hoursPerShift, startTime);
 
     const { data: existingStudents, error: studentsError } = await supabase
-      .from("shift_students")
+      .from("student_shifts")
       .select("shift_id")
       .in(
         "shift_id",
@@ -230,7 +230,7 @@ export const updateShifts = async (req: Request, res: Response) => {
     }
 
     const { data: existingStudents, error: studentsError } = await supabase
-      .from("shift_students")
+      .from("student_shifts")
       .select("shift_id")
       .eq("shift_id", shift.id);
 
@@ -365,7 +365,7 @@ export const deleteShifts = async (req: Request, res: Response) => {
 
     // Check if students are assigned
     const { data: existingStudents, error: studentsError } = await supabase
-      .from("shift_students")
+      .from("student_shifts")
       .select("shift_id")
       .in(
         "shift_id",
@@ -433,7 +433,7 @@ export const deleteShiftById = async (req: Request, res: Response) => {
 
     // Check if students are assigned to this shift
     const { data: existingStudents, error: studentsError } = await supabase
-      .from("shift_students")
+      .from("student_shifts")
       .select("shift_id")
       .eq("shift_id", shift.id);
 
@@ -462,14 +462,17 @@ export const deleteShiftById = async (req: Request, res: Response) => {
 };
 
 // Configure seats (initial setup)
-export const configureSeats = async (req: Request, res: Response) => {
+export const configureSeats = async (req: any, res: Response) => {
   try {
     const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
 
     const { data: admin, error: adminError } = await supabase
       .from("admin")
-      .select("*")
-      .eq("id", user?.userId)
+      .select("id, is_verified")
+      .eq("id", user.userId)
       .single();
 
     if (adminError || !admin || !admin.is_verified) {
@@ -477,49 +480,44 @@ export const configureSeats = async (req: Request, res: Response) => {
     }
 
     const { numSeats } = req.body;
-
-    if (
-      !numSeats ||
-      typeof numSeats !== "number" ||
-      numSeats < 1 ||
-      numSeats > 100
-    ) {
+    if (!numSeats || numSeats < 1 || numSeats > 100) {
       return res
         .status(400)
-        .json({ error: "Invalid number of seats. Must be between 1 and 100." });
+        .json({ error: "Number of seats must be between 1 and 100" });
     }
 
-    // Check if seats already exist
-    const { data: existingSeats, error: fetchError } = await supabase
+    // Fetch existing seats to determine the next seat_number
+    const { data: existingSeats, error: seatsError } = await supabase
       .from("seats")
-      .select("id")
-      .eq("admin_id", admin.id);
+      .select("seat_number")
+      .eq("admin_id", admin.id)
+      .order("seat_number", { ascending: true });
 
-    if (fetchError) return res.status(500).json({ error: fetchError.message });
-    if (existingSeats.length > 0) {
-      return res.status(400).json({
-        error: "Seats are already configured. Use update or delete instead.",
-      });
+    if (seatsError) {
+      return res.status(500).json({ error: seatsError.message });
     }
 
-    // Insert seats
-    const seatsToInsert = Array.from({ length: numSeats }, (_, i) => ({
+    const lastSeatNumber =
+      existingSeats.length > 0
+        ? existingSeats[existingSeats.length - 1].seat_number
+        : 0;
+
+    // Generate new seats starting from the next number
+    const newSeats = Array.from({ length: numSeats }, (_, i) => ({
+      seat_number: lastSeatNumber + i + 1,
       admin_id: admin.id,
-      seat_number: i + 1,
     }));
 
-    const { data: insertedSeats, error: insertError } = await supabase
+    const { data, error } = await supabase
       .from("seats")
-      .insert(seatsToInsert)
+      .insert(newSeats)
       .select();
 
-    if (insertError)
-      return res.status(500).json({ error: insertError.message });
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
 
-    res.json({
-      message: "Seats configured successfully",
-      seats: insertedSeats,
-    });
+    res.json({ message: "Seats added successfully", seats: data });
   } catch (err: any) {
     console.error("Error in configureSeats:", err);
     res.status(400).json({ error: err.message || "Server error" });
