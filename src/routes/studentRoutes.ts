@@ -1,12 +1,19 @@
 import { Router } from "express";
 
-import { authenticateToken, requireSubscribedAdmin } from "../middleware/auth";
+import {
+  authenticateToken,
+  requirePaidStudent,
+  requireSubscribedAdmin,
+} from "../middleware/auth";
 import {
   addStudent,
   updateStudent,
   deleteStudent,
   getStudents,
   getConfiguredShifts,
+  getStudentSubscription,
+  getStudentById,
+  updateStudentProfile,
 } from "../controllers/studentController";
 
 const router = Router();
@@ -41,5 +48,23 @@ router.get(
   requireSubscribedAdmin,
   getConfiguredShifts
 );
+router.get(
+  "/get-subscription",
+  authenticateToken,
+  requirePaidStudent,
+  getStudentSubscription
+);
 
+router.get(
+  "/get-profile",
+  authenticateToken,
+  requirePaidStudent,
+  getStudentById
+);
+router.put(
+  "/update-student-profile",
+  authenticateToken,
+  requirePaidStudent,
+  updateStudentProfile
+);
 export default router;

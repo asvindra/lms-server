@@ -313,7 +313,10 @@ export const login = async (req: Request, res: Response) => {
         email: user.email,
         role,
         isSubscribed: tableName === "admin" ? user.is_subscribed : undefined,
-        hasPaid: tableName === "students" ? user.has_paid : undefined,
+        paymentDone:
+          tableName === "students"
+            ? user.payment_done || user.is_subscribed
+            : undefined,
         isMaster: tableName === "admin" ? user.is_master : undefined,
       },
       process.env.JWT_SECRET as string,
