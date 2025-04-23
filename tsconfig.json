@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "typeRoots": ["./types", "./node_modules/@types"],
     "target": "ESNext",
     "module": "CommonJS",
     "outDir": "./dist",
@@ -8,7 +9,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

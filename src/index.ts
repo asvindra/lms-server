@@ -7,6 +7,8 @@ import cors from "cors";
 import configRoutes from "./routes/configRoutes";
 import seatRoutes from "./routes/seatRoutes";
 import adminRoutes from "./routes/adminRoutes";
+import subscriptionRoutes from "./routes/subscriptionRoutes";
+import paymentsRoutes from "./routes/paymentRoutes";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -25,6 +27,8 @@ app.use("/api/admin", configRoutes);
 app.use("/api/admin/profile", adminRoutes);
 app.use("/api/admin/student", studentRoutes);
 app.use("/api/admin/seat", seatRoutes);
+app.use("/api/subscriptions", subscriptionRoutes);
+app.use("/api/payments", paymentsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Library Management Backend");
