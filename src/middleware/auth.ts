@@ -7,7 +7,7 @@ interface TokenPayload {
   email: string;
   role: "admin" | "student";
   isSubscribed?: boolean;
-  hasPaid?: boolean;
+  paymentDone?: boolean;
   isMaster?: boolean;
 }
 
@@ -36,6 +36,9 @@ export const authenticateToken = (
       token,
       process.env.JWT_SECRET as string
     ) as TokenPayload;
+
+    console.log("decoded", decoded);
+
     req.user = decoded;
     next();
   } catch (err) {
@@ -59,7 +62,7 @@ export const requireSubscribedAdmin = (
   res: Response,
   next: NextFunction
 ) => {
-  console.log("req", req.user);
+  console.log("inside admin", req.user);
 
   if (!req.user || req.user.role !== "admin" || !req.user.isSubscribed) {
     console.log("inside", req.user?.isSubscribed);
@@ -74,7 +77,9 @@ export const requirePaidStudent = (
   res: Response,
   next: NextFunction
 ) => {
-  if (!req.user || req.user.role !== "student" || !req.user.hasPaid) {
+  console.log("req", req.user);
+
+  if (!req.user || req.user.role !== "student" || !req.user.paymentDone) {
     return res.status(403).json({ error: "Paid student access required" });
   }
   next();

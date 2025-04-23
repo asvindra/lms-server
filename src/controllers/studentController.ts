@@ -1,4 +1,7 @@
 import { Request, Response } from "express";
+import fs from "fs";
+import { v4 as uuidv4 } from "uuid";
+import formidable from "formidable";
 import { supabase } from "../config/db";
 import bcrypt from "bcrypt";
 
@@ -510,5 +513,389 @@ export const getConfiguredShifts = async (req: any, res: Response) => {
   } catch (err: any) {
     console.error(err);
     res.status(400).json({ error: err.message || "Server error" });
+  }
+};
+
+export const getStudentSubscription = async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select("id, payment_done")
+      .eq("id", user.userId)
+      .single();
+
+    if (studentError || !student) {
+      return res.status(403).json({ error: "Student not found" });
+    }
+
+    res.json({ isSubscribed: student.payment_done });
+  } catch (err: any) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "Server error" });
+  }
+};
+
+export const getStudentById = async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    const studentId = req.user.userId;
+
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Fetch student
+    const { data: student, error: studentError } = await supabase
+      .from("students")
+      .select(
+        "id, email, name, mobile_no, aadhar_no, address, father_name, joining_date, gender, payment_mode, payment_done, seat_id, admin_id, profile_photo"
+      )
+      .eq("id", studentId)
+      .single();
+
+    console.log("studentId: ", student, req.user);
+
+    if (studentError || !student) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // Fetch student shifts
+    const { data: studentShifts, error: shiftsError } = await supabase
+      .from("student_shifts")
+      .select("student_id, shift_id, monthly_fee")
+      .eq("student_id", studentId);
+
+    if (shiftsError) {
+      return res.status(500).json({ error: shiftsError.message });
+    }
+
+    // Fetch seat details
+    const { data: seat, error: seatError } = await supabase
+      .from("seats")
+      .select("id, seat_number, reserved_by")
+      .eq("id", student.seat_id)
+      .single();
+
+    if (seatError && seatError.code !== "PGRST116") {
+      // Ignore "no rows" error
+      return res.status(500).json({ error: seatError.message });
+    }
+
+    // Combine student data with shifts and seat
+    const studentWithShiftsAndSeat = {
+      ...student,
+      shifts: studentShifts || [],
+      seat: seat || null,
+    };
+
+    res.status(200).json({ student: studentWithShiftsAndSeat });
+  } catch (err: any) {
+    console.error("Error fetching student:", err);
+    res.status(500).json({ error: err.message || "Server error" });
+  }
+};
+
+export const updateStudentProfile = async (req: any, res: Response) => {
+  console.log("Starting updateStudentProfile");
+  console.log("Request headers:", req.headers);
+
+  const contentType = req.headers["content-type"] || "";
+  console.log("Content-Type:", contentType);
+
+  if (contentType.includes("multipart/form-data")) {
+    const form = formidable({ multiples: false }); // Single file upload
+    console.log("Before form.parse");
+
+    form.parse(req, async (err, fields, files) => {
+      console.log("Inside form.parse callback");
+      if (err) {
+        console.error("Error parsing form:", err);
+        return res.status(500).json({ error: "Failed to parse request" });
+      }
+      console.log("Raw fields:", fields);
+      console.log("Raw files:", files);
+
+      // Extract fields, handling potential arrays
+      const name = Array.isArray(fields.name) ? fields.name[0] : fields.name;
+      const mobileNo = Array.isArray(fields.mobileNo)
+        ? fields.mobileNo[0]
+        : fields.mobileNo;
+      const address = Array.isArray(fields.address)
+        ? fields.address[0]
+        : fields.address;
+      const fatherName = Array.isArray(fields.fatherName)
+        ? fields.fatherName[0]
+        : fields.fatherName;
+      const gender = Array.isArray(fields.gender)
+        ? fields.gender[0]
+        : fields.gender;
+      const email = Array.isArray(fields.email)
+        ? fields.email[0]
+        : fields.email;
+
+      // Handle profilePhoto as potentially an array or single file
+      const profilePhotoArray = files.profilePhoto;
+      const profilePhoto = Array.isArray(profilePhotoArray)
+        ? profilePhotoArray[0] // Take the first file if it’s an array
+        : profilePhotoArray; // Use directly if it’s a single file
+
+      console.log("Profile photo object:", profilePhoto);
+
+      if (profilePhoto && !profilePhoto.filepath) {
+        console.error("Filepath missing in profilePhoto:", profilePhoto);
+        return res
+          .status(400)
+          .json({ error: "Invalid file upload: No filepath" });
+      }
+
+      try {
+        const userId = req.user?.userId;
+        if (!userId) {
+          console.log("No userId found");
+          return res.status(401).json({ error: "Unauthorized" });
+        }
+
+        console.log("Fetching student for userId:", userId);
+        const { data: student, error: studentError } = await supabase
+          .from("students")
+          .select(
+            "id, name, mobile_no, address, father_name, gender, email, profile_photo"
+          )
+          .eq("id", userId)
+          .single();
+
+        if (studentError || !student) {
+          console.error("Student fetch error:", studentError);
+          return res.status(404).json({ error: "Student not found" });
+        }
+
+        // Validate required fields
+        if (
+          !name ||
+          !mobileNo ||
+          !address ||
+          !fatherName ||
+          !gender ||
+          !email
+        ) {
+          console.log("Missing required fields:", {
+            name,
+            mobileNo,
+            address,
+            fatherName,
+            gender,
+            email,
+          });
+          return res
+            .status(400)
+            .json({ error: "All basic profile fields are required" });
+        }
+
+        let profilePhotoUrl = student.profile_photo || "";
+        console.log("Existing profile photo:", profilePhotoUrl);
+
+        if (profilePhoto) {
+          console.log("Processing profile photo upload");
+          const fileExt =
+            profilePhoto.originalFilename?.split(".").pop() || "jpg";
+          const fileName = `${uuidv4()}.${fileExt}`;
+          const filePath = `student-profiles/${student.id}/${fileName}`;
+
+          const fileLocation = profilePhoto.filepath;
+          if (!fileLocation) {
+            console.error(
+              "No file location found in profilePhoto:",
+              profilePhoto
+            );
+            return res
+              .status(400)
+              .json({ error: "File upload missing location" });
+          }
+
+          const fileBuffer = fs.readFileSync(fileLocation);
+          const { error: uploadError } = await supabase.storage
+            .from("profile-photos")
+            .upload(filePath, fileBuffer, {
+              contentType: profilePhoto.mimetype || "image/jpeg",
+              cacheControl: "3600",
+              upsert: true,
+            });
+
+          if (uploadError) {
+            console.error("Upload error:", uploadError);
+            return res.status(500).json({ error: "Failed to upload photo" });
+          }
+
+          // Generate a signed URL (valid for 1 hour)
+          const { data: signedUrlData, error: signedUrlError } =
+            await supabase.storage
+              .from("profile-photos")
+              .createSignedUrl(filePath, 3600);
+
+          if (signedUrlError) {
+            console.error("Signed URL error:", signedUrlError);
+            return res
+              .status(500)
+              .json({ error: "Failed to generate signed URL" });
+          }
+
+          profilePhotoUrl = signedUrlData.signedUrl;
+          console.log("New signed profile photo URL:", profilePhotoUrl);
+        }
+
+        console.log("Updating student with:", {
+          name,
+          mobileNo,
+          address,
+          fatherName,
+          gender,
+          email,
+          profilePhotoUrl,
+        });
+        const { data: updatedStudent, error: updateError } = await supabase
+          .from("students")
+          .update({
+            name,
+            mobile_no: mobileNo,
+            address,
+            father_name: fatherName,
+            gender,
+            email,
+            profile_photo: profilePhotoUrl,
+          })
+          .eq("id", student.id)
+          .select(
+            "id, name, mobile_no, address, father_name, gender, email, profile_photo"
+          )
+          .single();
+
+        if (updateError) {
+          console.error("Update error:", updateError);
+          return res.status(500).json({ error: updateError.message });
+        }
+
+        const responseStudent = {
+          name: updatedStudent.name || "",
+          mobile_no: updatedStudent.mobile_no || "",
+          address: updatedStudent.address || "",
+          father_name: updatedStudent.father_name || "",
+          gender: updatedStudent.gender || "",
+          email: updatedStudent.email || "",
+          profile_photo: updatedStudent.profile_photo || "",
+        };
+
+        console.log("Update successful:", responseStudent);
+        res.status(200).json({
+          message: "Profile updated successfully",
+          student: responseStudent,
+        });
+      } catch (error: any) {
+        console.error("Error in updateStudentProfile:", error);
+        res.status(500).json({ error: error.message || "Server error" });
+      } finally {
+        if (
+          profilePhoto &&
+          profilePhoto.filepath &&
+          fs.existsSync(profilePhoto.filepath)
+        ) {
+          fs.unlinkSync(profilePhoto.filepath);
+        }
+      }
+    });
+  } else if (contentType.includes("application/json")) {
+    console.log("Handling JSON request");
+    const { name, mobileNo, address, fatherName, gender, email } = req.body;
+    try {
+      const userId = req.user?.userId;
+      if (!userId) {
+        console.log("No userId found");
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      console.log("Fetching student for userId:", userId);
+      const { data: student, error: studentError } = await supabase
+        .from("students")
+        .select(
+          "id, name, mobile_no, address, father_name, gender, email, profile_photo"
+        )
+        .eq("id", userId)
+        .single();
+
+      if (studentError || !student) {
+        console.error("Student fetch error:", studentError);
+        return res.status(404).json({ error: "Student not found" });
+      }
+
+      if (!name || !mobileNo || !address || !fatherName || !gender || !email) {
+        console.log("Missing required fields:", {
+          name,
+          mobileNo,
+          address,
+          fatherName,
+          gender,
+          email,
+        });
+        return res
+          .status(400)
+          .json({ error: "All basic profile fields are required" });
+      }
+
+      console.log("Updating student with:", {
+        name,
+        mobileNo,
+        address,
+        fatherName,
+        gender,
+        email,
+      });
+      const { data: updatedStudent, error: updateError } = await supabase
+        .from("students")
+        .update({
+          name,
+          mobile_no: mobileNo,
+          address,
+          father_name: fatherName,
+          gender,
+          email,
+          profile_photo: student.profile_photo || "",
+        })
+        .eq("id", student.id)
+        .select(
+          "id, name, mobile_no, address, father_name, gender, email, profile_photo"
+        )
+        .single();
+
+      if (updateError) {
+        console.error("Update error:", updateError);
+        return res.status(500).json({ error: updateError.message });
+      }
+
+      const responseStudent = {
+        name: updatedStudent.name || "",
+        mobile_no: updatedStudent.mobile_no || "",
+        address: updatedStudent.address || "",
+        father_name: updatedStudent.father_name || "",
+        gender: updatedStudent.gender || "",
+        email: updatedStudent.email || "",
+        profile_photo: updatedStudent.profile_photo || "",
+      };
+
+      console.log("Update successful:", responseStudent);
+      res.status(200).json({
+        message: "Profile updated successfully",
+        student: responseStudent,
+      });
+    } catch (error: any) {
+      console.error("Error in updateStudentProfile:", error);
+      res.status(500).json({ error: error.message || "Server error" });
+    }
+  } else {
+    console.log("Unsupported Content-Type");
+    return res.status(415).json({ error: "Unsupported Media Type" });
   }
 };
