@@ -1,35 +1,77 @@
-import { Response } from "express";
-
+import { Request, Response } from "express";
 import formidable from "formidable";
 import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../config/db";
+import Razorpay from "razorpay";
 
-export const getAdminProfile = async (req: any, res: any) => {
+const razorpay: any = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID!,
+  key_secret: process.env.RAZORPAY_KEY_SECRET!,
+});
+
+// Interface for formidable file (improves type safety)
+interface FormidableFile {
+  filepath: string;
+  originalFilename?: string;
+  mimetype?: string;
+}
+
+// GET /api/admin/profile
+export const getAdminProfile = async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.userId;
+    const userId = (req as any).user?.userId;
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const { data: admin, error } = await supabase
+    // Fetch admin profile
+    const { data: admin, error: adminError } = await supabase
       .from("admin")
-      .select("id, name, business_name, email, profile_photo, mobile_no")
+      .select(
+        "id, name, business_name, email, profile_photo, mobile_no, vpa, is_verified"
+      )
       .eq("id", userId)
       .single();
 
-    if (error || !admin) {
+    if (adminError || !admin) {
+      console.error("Admin fetch error:", adminError);
       return res.status(404).json({ error: "Admin not found" });
     }
 
-    res.status(200).json({ admin });
+    if (!admin.is_verified) {
+      return res.status(403).json({ error: "Admin must be verified" });
+    }
+
+    // Fetch subscription status
+    const { data: subscription, error: subError } = await supabase
+      .from("subscriptions")
+      .select("status")
+      .eq("user_id", userId)
+      .eq("status", "active")
+      .single();
+
+    res.status(200).json({
+      admin: {
+        id: admin.id,
+        name: admin.name,
+        business_name: admin.business_name,
+        email: admin.email,
+        mobile_no: admin.mobile_no,
+        profile_photo: admin.profile_photo,
+        vpa: admin.vpa,
+        is_verified: admin.is_verified,
+        subscription_status: subscription?.status || "inactive",
+      },
+    });
   } catch (err: any) {
     console.error("Error fetching profile:", err);
     res.status(500).json({ error: err.message || "Server error" });
   }
 };
 
-export const updateAdminProfile = async (req: any, res: Response) => {
+// POST /api/admin/profile
+export const updateAdminProfile = async (req: Request, res: Response) => {
   console.log("Starting updateAdminProfile");
   console.log("Request headers:", req.headers);
 
@@ -37,7 +79,7 @@ export const updateAdminProfile = async (req: any, res: Response) => {
   console.log("Content-Type:", contentType);
 
   if (contentType.includes("multipart/form-data")) {
-    const form = formidable({ multiples: false }); // Single file upload
+    const form = formidable({ multiples: false });
     console.log("Before form.parse");
 
     form.parse(req, async (err, fields, files) => {
@@ -56,12 +98,22 @@ export const updateAdminProfile = async (req: any, res: Response) => {
       const mobileNo = Array.isArray(fields.mobileNo)
         ? fields.mobileNo[0]
         : fields.mobileNo;
+      const bankName = Array.isArray(fields.bankName)
+        ? fields.bankName[0]
+        : fields.bankName;
+      const accountNumber = Array.isArray(fields.accountNumber)
+        ? fields.accountNumber[0]
+        : fields.accountNumber;
+      const ifscCode = Array.isArray(fields.ifscCode)
+        ? fields.ifscCode[0]
+        : fields.ifscCode;
 
-      // Handle profilePhoto as potentially an array or single file
       const profilePhotoArray = files.profilePhoto;
-      const profilePhoto = Array.isArray(profilePhotoArray)
-        ? profilePhotoArray[0] // Take the first file if it’s an array
-        : profilePhotoArray; // Use directly if it’s a single file
+      const profilePhoto: FormidableFile | any = Array.isArray(
+        profilePhotoArray
+      )
+        ? profilePhotoArray[0]
+        : profilePhotoArray;
 
       console.log("Profile photo object:", profilePhoto);
 
@@ -78,18 +130,25 @@ export const updateAdminProfile = async (req: any, res: Response) => {
         name,
         businessName,
         mobileNo,
+        bankName,
+        accountNumber,
+        ifscCode,
         profilePhoto
       );
     });
   } else if (contentType.includes("application/json")) {
     console.log("Handling JSON request");
-    const { name, businessName, mobileNo } = req.body;
+    const { name, businessName, mobileNo, bankName, accountNumber, ifscCode } =
+      req.body;
     await processProfileUpdate(
       req,
       res,
       name,
       businessName,
       mobileNo,
+      bankName,
+      accountNumber,
+      ifscCode,
       undefined
     );
   } else {
@@ -99,15 +158,18 @@ export const updateAdminProfile = async (req: any, res: Response) => {
 };
 
 const processProfileUpdate = async (
-  req: any,
+  req: Request,
   res: Response,
   name: string | undefined,
   businessName: string | undefined,
   mobileNo: string | undefined,
-  profilePhoto: formidable.File | undefined
+  bankName: string | undefined,
+  accountNumber: string | undefined,
+  ifscCode: string | undefined,
+  profilePhoto: FormidableFile | undefined
 ) => {
   try {
-    const userId = req.user?.userId;
+    const userId = (req as any).user?.userId;
     if (!userId) {
       console.log("No userId found");
       return res.status(401).json({ error: "Unauthorized" });
@@ -117,7 +179,7 @@ const processProfileUpdate = async (
     const { data: admin, error: adminError } = await supabase
       .from("admin")
       .select(
-        "id, is_verified, profile_photo, name, business_name, mobile_no, email"
+        "id, is_verified, profile_photo, name, business_name, mobile_no, email, vpa"
       )
       .eq("id", userId)
       .single();
@@ -141,13 +203,7 @@ const processProfileUpdate = async (
       const fileName = `${uuidv4()}.${fileExt}`;
       const filePath = `admin-profiles/${admin.id}/${fileName}`;
 
-      const fileLocation = profilePhoto.filepath;
-      if (!fileLocation) {
-        console.error("No file location found in profilePhoto:", profilePhoto);
-        return res.status(400).json({ error: "File upload missing location" });
-      }
-
-      const fileBuffer = fs.readFileSync(fileLocation);
+      const fileBuffer = fs.readFileSync(profilePhoto.filepath);
       const { error: uploadError } = await supabase.storage
         .from("profile-photos")
         .upload(filePath, fileBuffer, {
@@ -161,11 +217,10 @@ const processProfileUpdate = async (
         return res.status(500).json({ error: "Failed to upload photo" });
       }
 
-      // Generate a signed URL (valid for 1 hour, adjust as needed)
       const { data: signedUrlData, error: signedUrlError } =
         await supabase.storage
           .from("profile-photos")
-          .createSignedUrl(filePath, 3600); // 3600 seconds = 1 hour
+          .createSignedUrl(filePath, 3600);
 
       if (signedUrlError) {
         console.error("Signed URL error:", signedUrlError);
@@ -176,11 +231,55 @@ const processProfileUpdate = async (
       console.log("New signed profile photo URL:", profilePhotoUrl);
     }
 
+    let vpa = admin.vpa || "";
+    if (bankName && accountNumber && ifscCode) {
+      console.log("Setting up bank account and VPA");
+      // Create Razorpay contact
+      const contact = await razorpay.contact.create({
+        name: name || admin.name || "Admin",
+        email: admin.email,
+        contact: mobileNo || admin.mobile_no || "1234567890",
+        type: "customer",
+      });
+
+      // Create Razorpay fund account
+      const fundAccount = await razorpay.fund_account.create({
+        contact_id: contact.id,
+        account_type: "bank_account",
+        bank_account: {
+          name: name || admin.name || "Admin",
+          account_number: accountNumber,
+          ifsc: ifscCode,
+        },
+      });
+
+      // Mock VPA (use PSP API in production)
+      vpa = `${(name || admin.name || "admin")
+        .toLowerCase()
+        .replace(/\s/g, "")}@razorpay`;
+
+      // Save bank account details
+      const { error: bankError } = await supabase.from("bank_accounts").insert({
+        user_id: userId,
+        bank_name: bankName,
+        account_number: accountNumber,
+        ifsc_code: ifscCode,
+        vpa,
+        verified: true,
+      });
+
+      if (bankError) {
+        console.error("Bank account insert error:", bankError);
+        return res.status(500).json({ error: "Failed to save bank details" });
+      }
+    }
+
     console.log("Updating admin with:", {
       name,
       businessName,
       mobileNo,
       profilePhotoUrl,
+      vpa,
     });
     const { data: updatedAdmin, error: updateError } = await supabase
       .from("admin")
@@ -190,9 +289,10 @@ const processProfileUpdate = async (
           businessName !== undefined ? businessName : admin.business_name || "",
         mobile_no: mobileNo !== undefined ? mobileNo : admin.mobile_no || "",
         profile_photo: profilePhotoUrl,
+        vpa,
       })
       .eq("id", admin.id)
-      .select("id, name, business_name, mobile_no, email, profile_photo")
+      .select("id, name, business_name, mobile_no, email, profile_photo, vpa")
       .single();
 
     if (updateError) {
@@ -201,11 +301,13 @@ const processProfileUpdate = async (
     }
 
     const responseAdmin = {
+      id: updatedAdmin.id,
       name: updatedAdmin.name || "",
       business_name: updatedAdmin.business_name || "",
       mobile_no: updatedAdmin.mobile_no || "",
       email: updatedAdmin.email || "",
       profile_photo: updatedAdmin.profile_photo || "",
+      vpa: updatedAdmin.vpa || "",
     };
 
     console.log("Update successful:", responseAdmin);
