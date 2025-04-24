@@ -13,24 +13,26 @@ import subscriptionRoutes from "./routes/subscriptionRoutes";
 import paymentsRoutes from "./routes/paymentRoutes";
 
 const app = express();
-// const env = process.env.NODE_ENV || "development";
-// const envFilePath = `.env.${env}`;
 
-// if (fs.existsSync(envFilePath)) {
-//   console.log(`Loading environment file: ${envFilePath}`);
-//   dotenv.config({ path: envFilePath });
-// } else {
-//   console.error(`Environment file not found: ${envFilePath}`);
-//   dotenv.config(); // Fallback to default .env
-// }
-// dotenv.config({ path: `.env.${env}` });
 const PORT = process.env.PORT || 5000;
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS?.split(",") || [
+  "http://localhost:3000",
+  "https://lms-ui-eta.vercel.app",
+];
 
 app.use(
   cors({
-    origin: "http://localhost:3000", // Your Next.js app
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true, // If using cookies
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g., curl, Postman)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
