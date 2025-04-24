@@ -1,0 +1,40 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Deploy to Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ github.ref_name == 'main' && secrets.VERCEL_PROD_PROJECT_ID || secrets.VERCEL_STAGING_PROJECT_ID }}
+        run: |
+          vercel --token $VERCEL_TOKEN --prod=${{ github.ref_name == 'main' && 'true' || 'false' }} --env NODE_ENV=${{ github.ref_name == 'main' && 'production' || 'staging' }} --env PORT=${{ github.ref_name == 'main' && secrets.PROD_PORT || secrets.STAGING_PORT }} --env SUPABASE_URL=${{ github.ref_name == 'main' && secrets.PROD_SUPABASE_URL || secrets.STAGING_SUPABASE_URL }} --env SUPABASE_ANON_KEY=${{ github.ref_name == 'main' && secrets.PROD_SUPABASE_ANON_KEY || secrets.STAGING_SUPABASE_ANON_KEY }} --env SUPABASE_SERVICE_KEY=${{ github.ref_name == 'main' && secrets.PROD_SUPABASE_SERVICE_KEY || secrets.STAGING_SUPABASE_SERVICE_KEY }} --env STRIPE_SECRET_KEY=${{ github.ref_name == 'main' && secrets.PROD_STRIPE_SECRET_KEY || secrets.STAGING_STRIPE_SECRET_KEY }} --env STRIPE_WEBHOOK_SECRET=${{ github.ref_name == 'main' && secrets.PROD_STRIPE_WEBHOOK_SECRET || secrets.STAGING_STRIPE_WEBHOOK_SECRET }} --env JWT_SECRET=${{ github.ref_name == 'main' && secrets.PROD_JWT_SECRET || secrets.STAGING_JWT_SECRET }} --env EMAIL_USER=${{ github.ref_name == 'main' && secrets.PROD_EMAIL_USER || secrets.STAGING_EMAIL_USER }} --env EMAIL_PASS=${{ github.ref_name == 'main' && secrets.PROD_EMAIL_PASS || secrets.STAGING_EMAIL_PASS }} --env RAZORPAY_KEY_ID=${{ github.ref_name == 'main' && secrets.PROD_RAZORPAY_KEY_ID || secrets.STAGING_RAZORPAY_KEY_ID }} --env RAZORPAY_KEY_SECRET=${{ github.ref_name == 'main' && secrets.PROD_RAZORPAY_KEY_SECRET || secrets.STAGING_RAZORPAY_KEY_SECRET }} --env RAZORPAY_WEBHOOK_SECRET=${{ github.ref_name == 'main' && secrets.PROD_RAZORPAY_WEBHOOK_SECRET || secrets.STAGING_RAZORPAY_WEBHOOK_SECRET }} --env NEXT_PUBLIC_APP_URL=${{ github.ref_name == 'main' && secrets.PROD_NEXT_PUBLIC_APP_URL || secrets.STAGING_NEXT_PUBLIC_APP_URL }} --confirm
