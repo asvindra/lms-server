@@ -4,8 +4,10 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "nodemon src/index.ts",
+    "start:local": "NODE_ENV=development nodemon src/index.ts",
+    "start:dev": "NODE_ENV=staging nodemon src/index.ts",
+    "start:prod": "NODE_ENV=production node dist/index.js",
     "build": "tsc",
-    "start": "node dist/index.js",
     "lint": "eslint . --ext .ts"
   },
   "dependencies": {
