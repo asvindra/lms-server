@@ -2,6 +2,7 @@
   "name": "library-management-backend",
   "version": "1.0.0",
   "main": "src/index.ts",
+  "type": "module",
   "scripts": {
     "dev": "nodemon src/index.ts",
     "start:local": "NODE_ENV=development nodemon src/index.ts",
@@ -33,6 +34,9 @@
     "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.8.0",
     "@types/nodemailer": "^6.4.17",
+    "@typescript-eslint/eslint-plugin": "^8.31.0",
+    "@typescript-eslint/parser": "^8.31.0",
+    "eslint": "^9.25.1",
     "nodemon": "^3.0.1",
     "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
