@@ -2,7 +2,6 @@
   "name": "library-management-backend",
   "version": "1.0.0",
   "main": "src/index.ts",
-  "type": "module",
   "scripts": {
     "dev": "nodemon src/index.ts",
     "start:local": "NODE_ENV=development nodemon src/index.ts",
