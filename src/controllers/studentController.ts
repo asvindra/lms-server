@@ -362,11 +362,16 @@ export const deleteStudent = async (req: any, res: Response) => {
       return res.status(403).json({ error: "Admin must be subscribed" });
     }
 
-    const { id } = req.body;
+    const { id } = req.params;
 
+    console.log("id", id);
+
+    // Fetch student data
     const { data: student, error: studentError } = await supabase
       .from("students")
-      .select("id")
+      .select(
+        "id, admin_id, email, name, mobile_no, aadhar_no, address, father_name, joining_date, gender, payment_mode, payment_done, created_at, updated_at, is_verified, is_subscribed, seat_id, profile_photo"
+      )
       .eq("id", id)
       .eq("admin_id", admin.id)
       .single();
@@ -375,17 +380,107 @@ export const deleteStudent = async (req: any, res: Response) => {
       return res.status(404).json({ error: "Student not found" });
     }
 
+    // Copy to past_students
+    const { error: insertError } = await supabase.from("past_students").insert({
+      id: student.id,
+      admin_id: student.admin_id,
+      email: student.email,
+      name: student.name,
+      mobile_no: student.mobile_no,
+      aadhar_no: student.aadhar_no,
+      address: student.address,
+      father_name: student.father_name,
+      joining_date: student.joining_date,
+      gender: student.gender,
+      payment_mode: student.payment_mode,
+      payment_done: student.payment_done,
+      created_at: student.created_at,
+      updated_at: student.updated_at,
+      is_verified: student.is_verified,
+      is_subscribed: student.is_subscribed,
+      seat_id: student.seat_id,
+      profile_photo: student.profile_photo,
+      deleted_at: new Date().toISOString(),
+    });
+
+    if (insertError) {
+      console.error("Error inserting into past_students:", insertError);
+      return res.status(500).json({ error: "Failed to archive student" });
+    }
+
+    // Delete from students
     const { error: deleteError } = await supabase
       .from("students")
       .delete()
       .eq("id", id);
+
     if (deleteError) {
-      return res.status(500).json({ error: deleteError.message });
+      console.error("Error deleting student:", deleteError);
+      return res.status(500).json({ error: "Failed to delete student" });
     }
 
-    res.json({ message: "Student deleted successfully" });
+    res.json({ message: "Student archived successfully" });
   } catch (err: any) {
-    console.error(err);
+    console.error("Error in deleteStudent:", err);
+    res.status(400).json({ error: err.message || "Server error" });
+  }
+};
+
+export const deletePastStudent = async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { data: admin, error: adminError } = await supabase
+      .from("admin")
+      .select("id, is_verified, is_subscribed")
+      .eq("id", user.userId)
+      .single();
+
+    if (adminError || !admin) {
+      return res.status(403).json({ error: "Admin not found" });
+    }
+    if (!admin.is_verified) {
+      return res.status(403).json({ error: "Admin must be verified" });
+    }
+    if (!admin.is_subscribed) {
+      return res.status(403).json({ error: "Admin must be subscribed" });
+    }
+
+    const { id } = req.params;
+
+    console.log("iddddd", id);
+
+    // Verify past student exists and belongs to admin
+    const { data: pastStudent, error: pastStudentError } = await supabase
+      .from("past_students")
+      .select("id")
+      .eq("id", id)
+      .eq("admin_id", admin.id)
+      .single();
+
+    console.log("past", pastStudent, pastStudentError);
+
+    if (pastStudentError || !pastStudent) {
+      return res.status(404).json({ error: "Past student not found" });
+    }
+
+    // Delete from past_students
+    const { error: deleteError } = await supabase
+      .from("past_students")
+      .delete()
+      .eq("id", id);
+
+    if (deleteError) {
+      console.error("Error deleting past student:", deleteError);
+      return res.status(500).json({ error: "Failed to delete past student" });
+    }
+
+    res.json({ message: "Past student deleted successfully" });
+  } catch (err: any) {
+    console.error("Error in deletePastStudent:", err);
     res.status(400).json({ error: err.message || "Server error" });
   }
 };
@@ -457,6 +552,49 @@ export const getStudents = async (req: any, res: Response) => {
   } catch (err: any) {
     console.error(err);
     res.status(400).json({ error: err.message || "Server error" });
+  }
+};
+export const getPastStudents = async (req: any, res: Response) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const { data: admin, error: adminError } = await supabase
+      .from("admin")
+      .select("id, is_verified, is_subscribed")
+      .eq("id", user.userId)
+      .single();
+
+    if (adminError || !admin) {
+      return res.status(403).json({ error: "Admin not found" });
+    }
+    if (!admin.is_verified) {
+      return res.status(403).json({ error: "Admin must be verified" });
+    }
+    if (!admin.is_subscribed) {
+      return res.status(403).json({ error: "Admin must be subscribed" });
+    }
+
+    const { data: pastStudents, error: pastStudentsError } = await supabase
+      .from("past_students")
+      .select(
+        "id, email, name, mobile_no, aadhar_no, address, father_name, joining_date, gender, payment_mode, payment_done, created_at, updated_at, is_verified, is_subscribed, seat_id, profile_photo, deleted_at"
+      )
+      .eq("admin_id", admin.id);
+
+    if (pastStudentsError) {
+      console.error("Error fetching past students:", pastStudentsError);
+      return res.status(500).json({ error: "Failed to fetch past students" });
+    }
+
+    res.json({
+      students: pastStudents || [],
+    });
+  } catch (err: any) {
+    console.error("Error in getPastStudents:", err);
+    res.status(500).json({ error: err.message || "Server error" });
   }
 };
 

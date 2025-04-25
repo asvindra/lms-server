@@ -42,8 +42,8 @@ app.use("/api/admin", configRoutes);
 app.use("/api/admin/profile", adminRoutes);
 app.use("/api/admin/student", studentRoutes);
 app.use("/api/admin/seat", seatRoutes);
-app.use("/api/subscriptions", subscriptionRoutes);
-app.use("/api/payments", paymentsRoutes);
+app.use("/api/admin/subscriptions", subscriptionRoutes);
+app.use("/api/admin/payments", paymentsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Library Management Backend");
