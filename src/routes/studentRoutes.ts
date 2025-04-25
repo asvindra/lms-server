@@ -14,6 +14,8 @@ import {
   getStudentSubscription,
   getStudentById,
   updateStudentProfile,
+  deletePastStudent,
+  getPastStudents,
 } from "../controllers/studentController";
 
 const router = Router();
@@ -66,5 +68,18 @@ router.put(
   authenticateToken,
   requirePaidStudent,
   updateStudentProfile
+);
+
+router.delete(
+  "/delete-past-student/:id",
+  authenticateToken,
+  requireSubscribedAdmin,
+  deletePastStudent
+);
+router.get(
+  "/get-past-students",
+  authenticateToken,
+  requireSubscribedAdmin,
+  getPastStudents
 );
 export default router;

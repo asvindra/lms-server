@@ -37,8 +37,6 @@ export const authenticateToken = (
       process.env.JWT_SECRET as string
     ) as TokenPayload;
 
-    console.log("decoded", decoded);
-
     req.user = decoded;
     next();
   } catch (err) {
