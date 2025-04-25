@@ -29,7 +29,7 @@ export const getAdminProfile = async (req: Request, res: Response) => {
     const { data: admin, error: adminError } = await supabase
       .from("admin")
       .select(
-        "id, name, business_name, email, profile_photo, mobile_no, vpa, is_verified"
+        "id, name, business_name, email, profile_photo, mobile_no, is_verified, is_subscribed"
       )
       .eq("id", userId)
       .single();
@@ -43,14 +43,6 @@ export const getAdminProfile = async (req: Request, res: Response) => {
       return res.status(403).json({ error: "Admin must be verified" });
     }
 
-    // Fetch subscription status
-    const { data: subscription, error: subError } = await supabase
-      .from("subscriptions")
-      .select("status")
-      .eq("user_id", userId)
-      .eq("status", "active")
-      .single();
-
     res.status(200).json({
       admin: {
         id: admin.id,
@@ -59,9 +51,8 @@ export const getAdminProfile = async (req: Request, res: Response) => {
         email: admin.email,
         mobile_no: admin.mobile_no,
         profile_photo: admin.profile_photo,
-        vpa: admin.vpa,
         is_verified: admin.is_verified,
-        subscription_status: subscription?.status || "inactive",
+        subscription_status: admin.is_subscribed ? "active" : "inactive",
       },
     });
   } catch (err: any) {
