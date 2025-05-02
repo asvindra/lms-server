@@ -326,7 +326,12 @@ export const login = async (req: Request, res: Response) => {
     res.json({
       message: "Login successful",
       token,
-      user: { id: user.id, email: user.email, role },
+      user: {
+        id: user.id,
+        email: user.email,
+        role,
+        is_subscribed: tableName === "admin" ? user.is_subscribed : undefined,
+      },
     });
   } catch (err) {
     console.error(err);
